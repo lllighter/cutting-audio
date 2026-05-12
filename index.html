@@ -1,0 +1,1466 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>音频切割工具</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+    <style>
+      :root {
+        --bg: #f4f7fb;
+        --panel: #ffffff;
+        --panel-2: #f7f9fc;
+        --panel-3: #edf3fb;
+        --line: rgba(34, 53, 84, 0.1);
+        --line-strong: rgba(34, 53, 84, 0.18);
+        --text: #192434;
+        --muted: #728198;
+        --accent: #377dff;
+        --accent-2: #5a9bff;
+        --danger: #ef6a72;
+        --ok: #2c9b63;
+        --shadow: 0 16px 40px rgba(27, 52, 89, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top, rgba(55, 125, 255, 0.08), transparent 22%),
+          linear-gradient(180deg, #f8fbff 0%, #f2f6fb 100%);
+      }
+
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 14px 22px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(12px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Instrument Serif", serif;
+        font-size: 32px;
+        line-height: 1;
+        font-weight: 400;
+      }
+
+      .meta,
+      .hint,
+      .field label,
+      .time-badge {
+        color: var(--muted);
+      }
+
+      .workspace {
+        display: grid;
+        gap: 18px;
+        padding: 18px;
+        width: min(1240px, calc(100% - 24px));
+        margin: 0 auto;
+      }
+
+      .surface {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+        box-shadow: var(--shadow);
+      }
+
+      .surface-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .surface-head h2,
+      .surface-head h3 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .preview-panel {
+        display: grid;
+        gap: 0;
+      }
+
+      .preview-compact {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) auto auto;
+        gap: 14px;
+        align-items: center;
+        padding: 14px 16px;
+        background:
+          linear-gradient(180deg, rgba(55, 125, 255, 0.05), transparent 42%),
+          linear-gradient(180deg, #fbfdff 0%, #f5f8fd 100%);
+      }
+
+      .preview-main {
+        min-width: 0;
+        display: grid;
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid var(--line-strong);
+        background:
+          linear-gradient(135deg, rgba(55, 125, 255, 0.03), rgba(255, 255, 255, 0.75)),
+          linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
+      }
+
+      .preview-title {
+        font-size: clamp(18px, 2vw, 24px);
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      audio {
+        width: 100%;
+        height: 42px;
+      }
+
+      .preview-info {
+        display: grid;
+        gap: 10px;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(92px, 1fr));
+        gap: 8px;
+      }
+
+      .stat {
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+      }
+
+      .stat strong {
+        display: block;
+        margin-top: 6px;
+        font-size: 16px;
+      }
+
+      .controls-panel {
+        display: grid;
+        gap: 10px;
+        min-width: 260px;
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button,
+      select,
+      input[type="text"],
+      input[type="number"] {
+        min-height: 42px;
+        border: 1px solid transparent;
+        font: inherit;
+      }
+
+      button {
+        padding: 0 14px;
+        color: var(--text);
+        background: var(--panel-3);
+        cursor: pointer;
+        transition: background 140ms ease, transform 140ms ease, border-color 140ms ease;
+      }
+
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        border-color: var(--line-strong);
+      }
+
+      button:disabled {
+        opacity: 0.42;
+        cursor: not-allowed;
+      }
+
+      .primary {
+        background: linear-gradient(180deg, #4f97ff 0%, #377dff 100%);
+        color: #ffffff;
+        font-weight: 600;
+      }
+
+      .danger {
+        color: #b13e48;
+        background: rgba(239, 106, 114, 0.1);
+        border-color: rgba(239, 106, 114, 0.16);
+      }
+
+      .timeline-panel {
+        display: grid;
+      }
+
+      .timeline-shell {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+      }
+
+      .timecode-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .time-badge {
+        font-size: 12px;
+      }
+
+      .playhead {
+        color: var(--accent-2);
+        font-weight: 600;
+      }
+
+      .wave-wrap {
+        position: relative;
+        border: 1px solid var(--line);
+        background:
+          linear-gradient(180deg, rgba(55, 125, 255, 0.03), transparent),
+          #f8fbff;
+        overflow: hidden;
+      }
+
+      .ruler {
+        position: relative;
+        height: 32px;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+      }
+
+      .tick {
+        position: absolute;
+        bottom: 0;
+        width: 1px;
+        height: 12px;
+        background: rgba(34, 53, 84, 0.18);
+      }
+
+      .tick span {
+        position: absolute;
+        top: 4px;
+        left: 6px;
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+
+      #waveform {
+        position: relative;
+        height: 190px;
+      }
+
+      .markers {
+        position: absolute;
+        inset: 32px 0 0;
+        pointer-events: none;
+      }
+
+      .marker {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 0;
+        pointer-events: auto;
+        cursor: ew-resize;
+      }
+
+      .marker::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -1px;
+        width: 2px;
+        background: var(--accent);
+        box-shadow: 0 0 0 1px rgba(78, 161, 255, 0.18);
+      }
+
+      .marker::after {
+        content: "";
+        position: absolute;
+        top: 10px;
+        left: -6px;
+        width: 12px;
+        height: 12px;
+        background: var(--accent);
+        transform: rotate(45deg);
+      }
+
+      .marker-label {
+        position: absolute;
+        top: 24px;
+        left: 10px;
+        padding: 2px 6px;
+        font-size: 11px;
+        color: #1f4e94;
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid rgba(55, 125, 255, 0.18);
+        white-space: nowrap;
+      }
+
+      .form-panel,
+      .cuts-panel {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .panel-body {
+        display: grid;
+        gap: 14px;
+        padding: 16px;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      .field-inline {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: end;
+      }
+
+      .field label {
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      select,
+      input[type="text"],
+      input[type="number"] {
+        width: 100%;
+        padding: 0 12px;
+        color: var(--text);
+        background: #ffffff;
+        border-color: var(--line);
+        outline: none;
+      }
+
+      input:focus {
+        border-color: rgba(78, 161, 255, 0.55);
+        box-shadow: inset 0 0 0 1px rgba(78, 161, 255, 0.24);
+      }
+
+      .dropzone {
+        position: relative;
+        display: grid;
+        place-items: center;
+        min-height: 136px;
+        padding: 18px;
+        border: 1px dashed rgba(34, 53, 84, 0.14);
+        background:
+          linear-gradient(135deg, rgba(55, 125, 255, 0.08), transparent 44%),
+          rgba(55, 125, 255, 0.02);
+        text-align: center;
+        cursor: pointer;
+      }
+
+      .dropzone.dragover {
+        border-color: rgba(55, 125, 255, 0.44);
+        background:
+          linear-gradient(135deg, rgba(55, 125, 255, 0.12), transparent 44%),
+          rgba(55, 125, 255, 0.03);
+      }
+
+      .dropzone input {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+      }
+
+      .status {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        background: #f7faff;
+        line-height: 1.5;
+      }
+
+      .status.compact {
+        margin: 0 16px 14px;
+      }
+
+      .status strong {
+        color: var(--ok);
+      }
+
+      .cuts-list,
+      .result-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .cut-row,
+      .result-row {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+      }
+
+      .cut-row-head,
+      .result-row-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .result-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+      }
+
+      .result-meta {
+        display: grid;
+        gap: 6px;
+      }
+
+      .empty {
+        padding: 22px 14px;
+        color: var(--muted);
+        border: 1px dashed rgba(34, 53, 84, 0.12);
+        text-align: center;
+      }
+
+      .name-edit {
+        width: 100%;
+        min-height: 38px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        background: #ffffff;
+        color: var(--text);
+        font: inherit;
+      }
+
+      .transcript-tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .transcript-summary {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .transcript-box {
+        display: grid;
+        gap: 10px;
+        max-height: 320px;
+        overflow: auto;
+        padding: 12px;
+        border: 1px solid var(--line);
+        background: #fbfdff;
+      }
+
+      .transcript-words {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 6px;
+        align-items: flex-start;
+      }
+
+      .sentence-chip {
+        position: relative;
+        min-height: 38px;
+        padding: 8px 12px;
+        border: 1px solid rgba(34, 53, 84, 0.12);
+        background: #ffffff;
+        color: var(--text);
+        font: inherit;
+        text-align: left;
+        line-height: 1.45;
+      }
+
+      .sentence-chip.selected {
+        border-color: rgba(55, 125, 255, 0.38);
+        background: rgba(55, 125, 255, 0.1);
+        color: #174ea6;
+      }
+
+      .sentence-chip.selected::after {
+        content: "|";
+        position: absolute;
+        right: -7px;
+        top: 6px;
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .tiny {
+        min-height: 34px;
+        padding: 0 10px;
+        font-size: 13px;
+      }
+
+      .stack-panels {
+        display: grid;
+        gap: 18px;
+      }
+
+      .meta-grid {
+        display: grid;
+        gap: 18px;
+      }
+
+      .footer-note {
+        padding: 0 18px 18px;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: right;
+      }
+
+      .work-row {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1.15fr) minmax(280px, 0.85fr);
+        gap: 18px;
+        align-items: start;
+      }
+
+      @media (max-width: 1100px) {
+        .preview-compact {
+          grid-template-columns: 1fr;
+        }
+
+        .controls-panel {
+          min-width: 0;
+        }
+
+        .work-row {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .topbar,
+        .workspace {
+          padding: 14px;
+        }
+
+        .workspace {
+          gap: 14px;
+        }
+
+        .brand {
+          flex-direction: column;
+          gap: 4px;
+          align-items: start;
+        }
+
+        .surface-head,
+        .cut-row-head,
+        .result-row-head {
+          flex-wrap: wrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <h1>音频切割工具</h1>
+          <span class="meta">时间轴切割</span>
+        </div>
+        <div class="meta">预览原音频 · 设置分割线 · 导出片段</div>
+      </header>
+
+      <main class="workspace">
+          <section class="surface preview-panel">
+            <div class="preview-compact">
+              <div class="preview-main">
+                <div class="preview-title" id="previewTitle">尚未载入音频</div>
+                <audio id="sourceAudio" controls preload="metadata"></audio>
+              </div>
+              <div class="preview-info">
+                <div class="meta" id="sourceHint">等待上传</div>
+              <div class="stats">
+                <div class="stat">
+                  <div class="meta">时长</div>
+                  <strong id="durationStat">--:--</strong>
+                </div>
+                <div class="stat">
+                  <div class="meta">分割线</div>
+                  <strong id="markerStat">0</strong>
+                </div>
+                <div class="stat">
+                  <div class="meta">输出片段</div>
+                  <strong id="segmentStat">0</strong>
+                </div>
+                <div class="stat">
+                  <div class="meta">导出格式</div>
+                  <strong>MP3</strong>
+                </div>
+              </div>
+              </div>
+              <div class="controls-panel">
+                <div class="toolbar">
+                  <button class="primary" id="splitAtPlayheadButton" disabled>在播放位置加分割线</button>
+                  <button id="splitAtCenterButton" disabled>在中点加分割线</button>
+                  <button class="danger" id="clearMarkersButton" disabled>清空分割线</button>
+                </div>
+              </div>
+            </div>
+            <div class="status compact" id="status">先上传音频，然后在时间轴上设置分割线。</div>
+          </section>
+
+        <section class="surface timeline-panel">
+            <div class="surface-head">
+              <h3>时间轴</h3>
+              <div class="timecode-row">
+                <span class="time-badge">点击波形定位播放头</span>
+                <span class="playhead" id="playheadTime">00:00</span>
+              </div>
+            </div>
+            <div class="timeline-shell">
+              <div class="wave-wrap" id="waveWrap">
+                <div class="ruler" id="ruler"></div>
+                <div id="waveform"></div>
+                <div class="markers" id="markers"></div>
+              </div>
+              <div class="toolbar">
+                <button id="exportButton" class="primary" disabled>按分割线导出</button>
+                <button id="downloadAllButton" disabled>下载全部 ZIP</button>
+              </div>
+            </div>
+        </section>
+
+        <section class="meta-grid">
+          <div class="work-row">
+            <section class="form-panel">
+            <div class="surface-head">
+              <h3>文件与命名</h3>
+              <span class="meta">本地处理</span>
+            </div>
+            <div class="panel-body">
+              <label class="dropzone" id="dropzone">
+                <input id="fileInput" type="file" accept="audio/*" />
+                <div>
+                  <div>上传音频</div>
+                  <div class="hint">点选或拖拽文件</div>
+                </div>
+              </label>
+              <div class="field">
+                <label for="baseName">文件名前缀</label>
+                <input id="baseName" type="text" placeholder="默认使用原文件名" />
+              </div>
+            </div>
+            </section>
+
+            <section class="cuts-panel">
+              <div class="surface-head">
+                <h3>文本切割</h3>
+                <span class="meta" id="transcriptSummary">未转写</span>
+              </div>
+              <div class="panel-body">
+                <div class="field">
+                  <label for="localModel">本地识别模型</label>
+                  <select id="localModel">
+                    <option value="onnx-community/whisper-tiny.en_timestamped|sentence" selected>英语 · 快速 · 句子</option>
+                    <option value="onnx-community/whisper-tiny.en_timestamped|word">英语 · 快速 · 单词</option>
+                    <option value="onnx-community/whisper-tiny_timestamped|sentence">多语言 · 快速 · 句子</option>
+                    <option value="onnx-community/whisper-tiny_timestamped|word">多语言 · 快速 · 单词</option>
+                  </select>
+                </div>
+                <div class="transcript-tools">
+                  <button id="transcribeButton" class="primary tiny" disabled>转写文本</button>
+                  <button id="clearTextCutsButton" class="tiny" disabled>清空文本切点</button>
+                </div>
+                <div class="transcript-summary" id="transcriptModeHint">首次转写会先下载本地模型，之后可离线复用缓存。转写后，点某一句表示在该句后切开。</div>
+                <div class="transcript-box" id="transcriptBox">
+                  <div class="empty">转写结果会显示在这里</div>
+                </div>
+              </div>
+            </section>
+
+            <section class="cuts-panel">
+              <div class="surface-head">
+                <h3>分割线</h3>
+                <span class="meta" id="cutsSummary">0 条</span>
+              </div>
+              <div class="panel-body">
+                <div id="cutsList" class="cuts-list">
+                  <div class="empty">还没有分割线</div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="stack-panels">
+            <section class="cuts-panel">
+              <div class="surface-head">
+                <h3>导出结果</h3>
+                <span class="meta" id="resultsSummary">0 段</span>
+              </div>
+              <div class="panel-body">
+                <div id="results" class="result-list">
+                  <div class="empty">导出后在这里下载</div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <div class="footer-note">Made by light</div>
+    </div>
+
+    <script>
+      const fileInput = document.getElementById("fileInput");
+      const dropzone = document.getElementById("dropzone");
+      const baseNameInput = document.getElementById("baseName");
+      const sourceAudio = document.getElementById("sourceAudio");
+      const previewTitle = document.getElementById("previewTitle");
+      const sourceHint = document.getElementById("sourceHint");
+      const durationStat = document.getElementById("durationStat");
+      const markerStat = document.getElementById("markerStat");
+      const segmentStat = document.getElementById("segmentStat");
+      const playheadTime = document.getElementById("playheadTime");
+      const statusEl = document.getElementById("status");
+      const splitAtPlayheadButton = document.getElementById("splitAtPlayheadButton");
+      const splitAtCenterButton = document.getElementById("splitAtCenterButton");
+      const clearMarkersButton = document.getElementById("clearMarkersButton");
+      const exportButton = document.getElementById("exportButton");
+      const downloadAllButton = document.getElementById("downloadAllButton");
+      const localModelSelect = document.getElementById("localModel");
+      const transcribeButton = document.getElementById("transcribeButton");
+      const clearTextCutsButton = document.getElementById("clearTextCutsButton");
+      const transcriptBox = document.getElementById("transcriptBox");
+      const transcriptSummary = document.getElementById("transcriptSummary");
+      const transcriptModeHint = document.getElementById("transcriptModeHint");
+      const cutsList = document.getElementById("cutsList");
+      const cutsSummary = document.getElementById("cutsSummary");
+      const resultsEl = document.getElementById("results");
+      const resultsSummary = document.getElementById("resultsSummary");
+      const waveWrap = document.getElementById("waveWrap");
+      const waveformContainer = document.getElementById("waveform");
+      const markersEl = document.getElementById("markers");
+      const rulerEl = document.getElementById("ruler");
+
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      let localTranscriber = null;
+      let localTranscriberModel = "";
+      const state = {
+        file: null,
+        audioBuffer: null,
+        sourceUrl: "",
+        markers: [],
+        transcriptSegments: [],
+        clips: [],
+        objectUrls: [],
+        dragIndex: null,
+        isDragging: false,
+      };
+
+      const wavesurfer = WaveSurfer.create({
+        container: "#waveform",
+        waveColor: "rgba(55, 72, 102, 0.24)",
+        progressColor: "#377dff",
+        cursorColor: "#377dff",
+        cursorWidth: 2,
+        height: 158,
+        barWidth: 2,
+        barGap: 1,
+        barRadius: 2,
+        normalize: true,
+        dragToSeek: true,
+      });
+
+      function formatSeconds(totalSeconds) {
+        const clamped = Math.max(0, totalSeconds);
+        const hours = Math.floor(clamped / 3600);
+        const minutes = Math.floor((clamped % 3600) / 60);
+        const seconds = Math.floor(clamped % 60);
+        const frames = Math.floor((clamped % 1) * 10);
+        if (hours > 0) {
+          return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+        }
+        return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${frames}`;
+      }
+
+      function formatBytes(bytes) {
+        if (!bytes) return "0 B";
+        const units = ["B", "KB", "MB", "GB"];
+        let value = bytes;
+        let index = 0;
+        while (value >= 1024 && index < units.length - 1) {
+          value /= 1024;
+          index += 1;
+        }
+        return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+      }
+
+      function sanitizeBaseName(name) {
+        return name.replace(/\.[^.]+$/, "").replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+      }
+
+      function normalizeClipName(name, fallback) {
+        const cleaned = sanitizeBaseName(name || "");
+        return cleaned ? `${cleaned}.mp3` : fallback;
+      }
+
+      function getTranscriptGranularity() {
+        return localModelSelect.value.split("|")[1] || "sentence";
+      }
+
+      function getTranscriptModeLabel() {
+        return getTranscriptGranularity() === "word" ? "单词" : "句子";
+      }
+
+      function buildTextSegmentNames(cutTimes, duration) {
+        if (!state.transcriptSegments.length) return [];
+        const boundaries = [0, ...cutTimes, duration];
+        const names = [];
+
+        for (let i = 0; i < boundaries.length - 1; i += 1) {
+          const startTime = boundaries[i];
+          const endTime = boundaries[i + 1];
+          const sentenceText = state.transcriptSegments
+            .filter((segment) => segment.end > startTime && segment.start < endTime)
+            .map((segment) => segment.text)
+            .join(" ");
+          const fallback = `${sanitizeBaseName(baseNameInput.value || state.file?.name || "clip")}_${String(i + 1).padStart(2, "0")}`;
+          names.push(normalizeClipName(sentenceText, `${fallback}.mp3`));
+        }
+
+        return names;
+      }
+
+      function setStatus(message, done = false) {
+        statusEl.innerHTML = done ? `<strong>${message}</strong>` : message;
+      }
+
+      function setButtonsEnabled(enabled) {
+        splitAtPlayheadButton.disabled = !enabled;
+        splitAtCenterButton.disabled = !enabled;
+        clearMarkersButton.disabled = !enabled;
+        exportButton.disabled = !enabled;
+        transcribeButton.disabled = !enabled;
+      }
+
+      function cleanupClips() {
+        state.clips = [];
+        state.objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        state.objectUrls = [];
+        resultsEl.innerHTML = '<div class="empty">导出后在这里下载</div>';
+        resultsSummary.textContent = "0 段";
+        segmentStat.textContent = "0";
+        downloadAllButton.disabled = true;
+      }
+
+      function resetTranscript() {
+        state.transcriptSegments = [];
+        transcriptSummary.textContent = "未转写";
+        transcriptModeHint.textContent = `首次转写会先下载本地模型，之后可离线复用缓存。转写后，点某一${getTranscriptModeLabel()}表示在该${getTranscriptModeLabel()}后切开。`;
+        transcriptBox.innerHTML = '<div class="empty">转写结果会显示在这里</div>';
+        clearTextCutsButton.disabled = true;
+      }
+
+      function clearMarkers() {
+        state.markers = [];
+        renderMarkers();
+        cleanupClips();
+        setStatus("分割线已清空。");
+      }
+
+      function sortMarkers() {
+        state.markers.sort((a, b) => a - b);
+      }
+
+      function getTextCutCount() {
+        return state.transcriptSegments.filter((segment) => segment.cutAfter).length;
+      }
+
+      function getTextCutTimes() {
+        return state.transcriptSegments
+          .filter((segment) => segment.cutAfter)
+          .map((segment) => segment.end)
+          .sort((a, b) => a - b);
+      }
+
+      function getDuration() {
+        return state.audioBuffer ? state.audioBuffer.duration : 0;
+      }
+
+      function buildRuler() {
+        rulerEl.innerHTML = "";
+        const duration = getDuration();
+        if (!duration) return;
+        const desiredTicks = 8;
+        const roughStep = duration / desiredTicks;
+        const candidates = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+        const step = candidates.find((value) => value >= roughStep) || candidates[candidates.length - 1];
+        for (let time = 0; time <= duration; time += step) {
+          const tick = document.createElement("div");
+          tick.className = "tick";
+          tick.style.left = `${(time / duration) * 100}%`;
+          const label = document.createElement("span");
+          label.textContent = formatSeconds(time).replace(/\.\d$/, "");
+          tick.appendChild(label);
+          rulerEl.appendChild(tick);
+        }
+      }
+
+      function renderMarkers() {
+        markersEl.innerHTML = "";
+        const duration = getDuration();
+        sortMarkers();
+        markerStat.textContent = String(state.markers.length);
+        cutsSummary.textContent = `${state.markers.length} 条`;
+
+        if (!duration) {
+          cutsList.innerHTML = '<div class="empty">还没有分割线</div>';
+          return;
+        }
+
+        state.markers.forEach((time, index) => {
+          const marker = document.createElement("div");
+          marker.className = "marker";
+          marker.style.left = `${(time / duration) * 100}%`;
+          marker.dataset.index = String(index);
+
+          const label = document.createElement("div");
+          label.className = "marker-label";
+          label.textContent = formatSeconds(time);
+          marker.appendChild(label);
+
+          marker.addEventListener("pointerdown", (event) => {
+            event.preventDefault();
+            state.dragIndex = index;
+            state.isDragging = true;
+          });
+
+          markersEl.appendChild(marker);
+        });
+
+        renderCutsList();
+      }
+
+      function renderCutsList() {
+        const textCuts = getTextCutTimes();
+        cutsSummary.textContent = `${state.markers.length + textCuts.length} 条`;
+        if (!state.markers.length && !textCuts.length) {
+          cutsList.innerHTML = '<div class="empty">还没有分割线</div>';
+          return;
+        }
+
+        cutsList.innerHTML = "";
+        state.markers.forEach((time, index) => {
+          const row = document.createElement("div");
+          row.className = "cut-row";
+          row.innerHTML = `
+            <div class="cut-row-head">
+              <strong>分割线 ${index + 1}</strong>
+              <button class="danger" data-remove-index="${index}">删除</button>
+            </div>
+            <div class="meta">${formatSeconds(time)}</div>
+          `;
+          cutsList.appendChild(row);
+        });
+
+        textCuts.forEach((time, index) => {
+          const row = document.createElement("div");
+          row.className = "cut-row";
+          row.innerHTML = `
+            <div class="cut-row-head">
+              <strong>文本切点 ${index + 1}</strong>
+              <span class="meta">自动</span>
+            </div>
+            <div class="meta">${formatSeconds(time)}</div>
+          `;
+          cutsList.appendChild(row);
+        });
+
+        cutsList.querySelectorAll("[data-remove-index]").forEach((button) => {
+          button.addEventListener("click", () => {
+            state.markers.splice(Number(button.dataset.removeIndex), 1);
+            renderMarkers();
+            cleanupClips();
+            setStatus("已删除分割线。");
+          });
+        });
+      }
+
+      function addMarker(time) {
+        const duration = getDuration();
+        if (!duration) return;
+        const clamped = Math.min(duration - 0.01, Math.max(0.01, time));
+        const exists = state.markers.some((value) => Math.abs(value - clamped) < 0.05);
+        if (exists) {
+          setStatus("这个位置附近已经有分割线了。");
+          return;
+        }
+        state.markers.push(Number(clamped.toFixed(3)));
+        renderMarkers();
+        cleanupClips();
+        setStatus(`已添加分割线 ${formatSeconds(clamped)}。`, true);
+      }
+
+      function groupWordsToSentences(words) {
+        const sentences = [];
+        let current = [];
+
+        const pushCurrent = () => {
+          if (!current.length) return;
+          const text = current.map((item) => item.word).join(" ").replace(/\s+([,.!?;:])/g, "$1").trim();
+          sentences.push({
+            text,
+            start: current[0].start,
+            end: current[current.length - 1].end,
+            cutAfter: false,
+          });
+          current = [];
+        };
+
+        words.forEach((word, index) => {
+          current.push(word);
+          const next = words[index + 1];
+          const endsSentence = /[.!?。！？；;:]$/.test(word.word) || !next || next.start - word.end > 0.8;
+          if (endsSentence) {
+            pushCurrent();
+          }
+        });
+
+        pushCurrent();
+        return sentences;
+      }
+
+      function buildTranscriptUnits(words) {
+        return getTranscriptGranularity() === "word"
+          ? words.map((item) => ({ text: item.word, start: item.start, end: item.end, cutAfter: false }))
+          : groupWordsToSentences(words);
+      }
+
+      function renderTranscript() {
+        if (!state.transcriptSegments.length) {
+          resetTranscript();
+          return;
+        }
+
+        const count = state.transcriptSegments.length;
+        const cutCount = getTextCutCount();
+        transcriptSummary.textContent = `${count} ${getTranscriptModeLabel()}`;
+        transcriptModeHint.textContent = cutCount
+          ? `已选择 ${cutCount} 个文本切点，导出时会优先按文本切割。`
+          : `点某一${getTranscriptModeLabel()}表示在该${getTranscriptModeLabel()}后切开。`;
+        transcriptBox.innerHTML = '<div class="transcript-words" id="transcriptWords"></div>';
+        const container = document.getElementById("transcriptWords");
+
+        state.transcriptSegments.forEach((token, index) => {
+          const button = document.createElement("button");
+          button.className = `sentence-chip${token.cutAfter ? " selected" : ""}`;
+          button.textContent = token.text;
+          button.title = `${formatSeconds(token.start)} - ${formatSeconds(token.end)}`;
+          button.addEventListener("click", () => {
+            state.transcriptSegments[index].cutAfter = !state.transcriptSegments[index].cutAfter;
+            cleanupClips();
+            renderTranscript();
+            renderCutsList();
+          });
+          container.appendChild(button);
+        });
+
+        clearTextCutsButton.disabled = cutCount === 0;
+      }
+
+      async function transcribeAudio() {
+        if (!state.file) return;
+        transcribeButton.disabled = true;
+        setStatus("正在加载本地模型并转写音频...");
+
+        try {
+          const [modelId] = localModelSelect.value.split("|");
+          if (!localTranscriber || localTranscriberModel !== modelId) {
+            const { pipeline, env } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1");
+            env.allowLocalModels = false;
+            env.useBrowserCache = true;
+            const device = "gpu" in navigator ? "webgpu" : "wasm";
+            localTranscriber = await pipeline("automatic-speech-recognition", modelId, {
+              device,
+              dtype: device === "webgpu" ? "fp32" : "q8",
+            });
+            localTranscriberModel = modelId;
+          }
+
+          const result = await localTranscriber(state.sourceUrl, {
+            return_timestamps: "word",
+            chunk_length_s: 30,
+            stride_length_s: 5,
+          });
+          const words = Array.isArray(result.chunks) ? result.chunks : [];
+          if (!words.length) {
+            throw new Error("No word timestamps returned");
+          }
+
+          const transcriptWords = words
+            .filter((item) => item.text && Array.isArray(item.timestamp))
+            .map((item) => ({
+              word: item.text.trim(),
+              start: Number(item.timestamp[0]),
+              end: Number(item.timestamp[1]),
+            }))
+            .filter((item) => item.word && Number.isFinite(item.start) && Number.isFinite(item.end) && item.end >= item.start);
+          state.transcriptSegments = buildTranscriptUnits(transcriptWords);
+
+          cleanupClips();
+          renderTranscript();
+          renderCutsList();
+          setStatus(`转写完成，共识别 ${state.transcriptSegments.length} 个${getTranscriptModeLabel()}。`, true);
+        } catch (error) {
+          console.error(error);
+          setStatus("本地转写失败。可能是模型下载失败、浏览器不支持，或设备内存不足。");
+        } finally {
+          transcribeButton.disabled = false;
+        }
+      }
+
+      function updateDraggedMarker(clientX) {
+        if (state.dragIndex === null || !getDuration()) return;
+        const rect = markersEl.getBoundingClientRect();
+        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        state.markers[state.dragIndex] = Number((ratio * getDuration()).toFixed(3));
+        renderMarkers();
+      }
+
+      function floatTo16BitPCM(float32Array) {
+        const int16 = new Int16Array(float32Array.length);
+        for (let i = 0; i < float32Array.length; i += 1) {
+          const value = Math.max(-1, Math.min(1, float32Array[i]));
+          int16[i] = value < 0 ? value * 0x8000 : value * 0x7fff;
+        }
+        return int16;
+      }
+
+      function encodeMp3FromBuffer(buffer) {
+        const channels = Math.min(buffer.numberOfChannels, 2);
+        const encoder = new lamejs.Mp3Encoder(channels, buffer.sampleRate, 128);
+        const left = floatTo16BitPCM(buffer.getChannelData(0));
+        const right = channels === 2 ? floatTo16BitPCM(buffer.getChannelData(1)) : null;
+        const blockSize = 1152;
+        const chunks = [];
+
+        for (let i = 0; i < left.length; i += blockSize) {
+          const leftChunk = left.subarray(i, i + blockSize);
+          const mp3Chunk = channels === 2
+            ? encoder.encodeBuffer(leftChunk, right.subarray(i, i + blockSize))
+            : encoder.encodeBuffer(leftChunk);
+          if (mp3Chunk.length > 0) {
+            chunks.push(new Int8Array(mp3Chunk));
+          }
+        }
+
+        const end = encoder.flush();
+        if (end.length > 0) {
+          chunks.push(new Int8Array(end));
+        }
+        return new Blob(chunks, { type: "audio/mpeg" });
+      }
+
+      function createSegmentBuffer(sourceBuffer, startFrame, endFrame) {
+        const frameCount = endFrame - startFrame;
+        const segmentBuffer = audioContext.createBuffer(
+          sourceBuffer.numberOfChannels,
+          frameCount,
+          sourceBuffer.sampleRate
+        );
+
+        for (let channel = 0; channel < sourceBuffer.numberOfChannels; channel += 1) {
+          const segmentData = sourceBuffer.getChannelData(channel).slice(startFrame, endFrame);
+          segmentBuffer.copyToChannel(segmentData, channel, 0);
+        }
+
+        return segmentBuffer;
+      }
+
+      function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = filename;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      function renderResults() {
+        if (!state.clips.length) {
+          resultsEl.innerHTML = '<div class="empty">导出后在这里下载</div>';
+          resultsSummary.textContent = "0 段";
+          segmentStat.textContent = "0";
+          downloadAllButton.disabled = true;
+          return;
+        }
+
+        resultsSummary.textContent = `${state.clips.length} 段`;
+        segmentStat.textContent = String(state.clips.length);
+        resultsEl.innerHTML = "";
+
+        state.clips.forEach((clip, index) => {
+          const row = document.createElement("div");
+          row.className = "result-row";
+          row.innerHTML = `
+            <div class="result-meta">
+              <input class="name-edit" data-name-index="${index}" value="${clip.name.replace(/\.mp3$/i, "")}" />
+              <div class="result-row-head">
+                <span class="meta">${formatSeconds(clip.duration)}</span>
+                <span class="meta">${formatBytes(clip.blob.size)}</span>
+              </div>
+            </div>
+            <button data-download-index="${index}">下载</button>
+          `;
+          resultsEl.appendChild(row);
+        });
+
+        resultsEl.querySelectorAll("[data-name-index]").forEach((input) => {
+          input.addEventListener("input", () => {
+            const index = Number(input.dataset.nameIndex);
+            const fallback = `${sanitizeBaseName(baseNameInput.value || state.file?.name || "clip")}_${String(index + 1).padStart(2, "0")}.mp3`;
+            state.clips[index].name = normalizeClipName(input.value, fallback);
+          });
+        });
+
+        resultsEl.querySelectorAll("[data-download-index]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const clip = state.clips[Number(button.dataset.downloadIndex)];
+            downloadBlob(clip.blob, clip.name);
+          });
+        });
+
+        downloadAllButton.disabled = false;
+      }
+
+      async function loadAudio(file) {
+        cleanupClips();
+        resetTranscript();
+        clearMarkersButton.disabled = true;
+        state.file = file;
+        if (state.sourceUrl) {
+          URL.revokeObjectURL(state.sourceUrl);
+        }
+        setStatus("正在载入音频...");
+
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          state.audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+          state.sourceUrl = URL.createObjectURL(file);
+          sourceAudio.src = state.sourceUrl;
+          previewTitle.textContent = sanitizeBaseName(file.name) || "源音频";
+          sourceHint.textContent = file.name;
+          durationStat.textContent = formatSeconds(state.audioBuffer.duration).replace(/\.\d$/, "");
+          if (!baseNameInput.value.trim()) {
+            baseNameInput.value = sanitizeBaseName(file.name);
+          }
+          await wavesurfer.loadBlob(file);
+          buildRuler();
+          state.markers = [];
+          renderMarkers();
+          setButtonsEnabled(true);
+          setStatus("音频已载入。点击波形定位播放头，然后添加分割线。", true);
+        } catch (error) {
+          console.error(error);
+          setStatus("音频载入失败，请换一个可解码的音频文件。");
+        }
+      }
+
+      async function exportSegments() {
+        if (!state.audioBuffer || !state.file) return;
+        const duration = state.audioBuffer.duration;
+        const textCutTimes = getTextCutTimes();
+        const manualCutTimes = state.markers.slice().sort((a, b) => a - b);
+        const activeCuts = textCutTimes.length ? textCutTimes : manualCutTimes;
+        const points = [0, ...activeCuts, duration];
+        const baseName = sanitizeBaseName(baseNameInput.value || state.file.name) || "clip";
+        const textSegmentNames = textCutTimes.length ? buildTextSegmentNames(textCutTimes, duration) : [];
+        cleanupClips();
+        exportButton.disabled = true;
+        downloadAllButton.disabled = true;
+        setStatus(textCutTimes.length ? "正在根据文本切点导出 MP3..." : "正在根据分割线导出 MP3...");
+
+        try {
+          for (let i = 0; i < points.length - 1; i += 1) {
+            const startTime = points[i];
+            const endTime = points[i + 1];
+            if (endTime - startTime <= 0.03) continue;
+            const startFrame = Math.floor(startTime * state.audioBuffer.sampleRate);
+            const endFrame = Math.floor(endTime * state.audioBuffer.sampleRate);
+            const segmentBuffer = createSegmentBuffer(state.audioBuffer, startFrame, endFrame);
+            const blob = encodeMp3FromBuffer(segmentBuffer);
+            const segmentIndex = state.clips.length;
+            const fallbackName = `${baseName}_${String(segmentIndex + 1).padStart(2, "0")}.mp3`;
+            state.clips.push({
+              name: textSegmentNames[segmentIndex] || fallbackName,
+              blob,
+              duration: endTime - startTime,
+            });
+            setStatus(`正在导出第 ${state.clips.length} 段...`);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+
+          renderResults();
+          setStatus(`导出完成，共 ${state.clips.length} 段。`, true);
+        } catch (error) {
+          console.error(error);
+          setStatus("导出失败，可能是音频较大或浏览器内存不足。");
+        } finally {
+          exportButton.disabled = false;
+        }
+      }
+
+      async function downloadAll() {
+        if (!state.clips.length) return;
+        downloadAllButton.disabled = true;
+        setStatus("正在打包 ZIP...");
+        try {
+          const zip = new JSZip();
+          state.clips.forEach((clip) => zip.file(clip.name, clip.blob));
+          const blob = await zip.generateAsync({ type: "blob" });
+          const baseName = sanitizeBaseName(baseNameInput.value || state.file.name) || "clips";
+          downloadBlob(blob, `${baseName}_all.zip`);
+          setStatus("ZIP 已生成。", true);
+        } catch (error) {
+          console.error(error);
+          setStatus("ZIP 打包失败。");
+        } finally {
+          downloadAllButton.disabled = false;
+        }
+      }
+
+      fileInput.addEventListener("change", (event) => {
+        const [file] = event.target.files;
+        if (file) {
+          loadAudio(file);
+        }
+      });
+
+      ["dragenter", "dragover"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropzone.classList.add("dragover");
+        });
+      });
+
+      ["dragleave", "drop"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropzone.classList.remove("dragover");
+        });
+      });
+
+      dropzone.addEventListener("drop", (event) => {
+        const [file] = event.dataTransfer.files;
+        if (file && file.type.startsWith("audio/")) {
+          fileInput.files = event.dataTransfer.files;
+          loadAudio(file);
+        }
+      });
+
+      waveWrap.addEventListener("dblclick", (event) => {
+        if (!getDuration()) return;
+        const rect = markersEl.getBoundingClientRect();
+        const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+        addMarker(ratio * getDuration());
+      });
+
+      window.addEventListener("pointermove", (event) => {
+        if (!state.isDragging) return;
+        updateDraggedMarker(event.clientX);
+        cleanupClips();
+      });
+
+      window.addEventListener("pointerup", () => {
+        if (!state.isDragging) return;
+        state.isDragging = false;
+        state.dragIndex = null;
+        renderMarkers();
+        setStatus("分割线位置已更新。", true);
+      });
+
+      splitAtPlayheadButton.addEventListener("click", () => {
+        addMarker(sourceAudio.currentTime || wavesurfer.getCurrentTime() || 0);
+      });
+
+      splitAtCenterButton.addEventListener("click", () => {
+        addMarker(getDuration() / 2);
+      });
+
+      clearMarkersButton.addEventListener("click", clearMarkers);
+      exportButton.addEventListener("click", exportSegments);
+      downloadAllButton.addEventListener("click", downloadAll);
+      transcribeButton.addEventListener("click", transcribeAudio);
+      clearTextCutsButton.addEventListener("click", () => {
+        state.transcriptSegments = state.transcriptSegments.map((segment) => ({ ...segment, cutAfter: false }));
+        cleanupClips();
+        renderTranscript();
+        renderCutsList();
+        setStatus("文本切点已清空。");
+      });
+
+      localModelSelect.addEventListener("change", () => {
+        resetTranscript();
+        renderCutsList();
+      });
+
+      sourceAudio.addEventListener("timeupdate", () => {
+        playheadTime.textContent = formatSeconds(sourceAudio.currentTime);
+        if (!wavesurfer.isPlaying()) {
+          wavesurfer.setTime(sourceAudio.currentTime);
+        }
+      });
+
+      sourceAudio.addEventListener("play", () => {
+        wavesurfer.setTime(sourceAudio.currentTime);
+      });
+
+      wavesurfer.on("interaction", (time) => {
+        sourceAudio.currentTime = time;
+        playheadTime.textContent = formatSeconds(time);
+      });
+
+    </script>
+  </body>
+</html>
