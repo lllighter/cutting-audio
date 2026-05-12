@@ -845,6 +845,10 @@
         return cleaned ? `${cleaned}.mp3` : fallback;
       }
 
+      function buildIndexedClipName(index, name) {
+        return `${String(index + 1).padStart(2, "0")}_${name}`;
+      }
+
       function getTranscriptGranularity() {
         return localModelSelect.value.split("|")[1] || "sentence";
       }
@@ -857,6 +861,7 @@
         if (!state.transcriptSegments.length) return [];
         const boundaries = [0, ...cutTimes, duration];
         const names = [];
+        const baseName = sanitizeBaseName(baseNameInput.value || state.file?.name || "clip");
 
         for (let i = 0; i < boundaries.length - 1; i += 1) {
           const startTime = boundaries[i];
@@ -865,7 +870,7 @@
             .filter((segment) => segment.end > startTime && segment.start < endTime)
             .map((segment) => segment.text)
             .join(" ");
-          const fallback = `${sanitizeBaseName(baseNameInput.value || state.file?.name || "clip")}_${String(i + 1).padStart(2, "0")}`;
+          const fallback = buildIndexedClipName(i, baseName);
           names.push(normalizeClipName(sentenceText, `${fallback}.mp3`));
         }
 
@@ -1259,7 +1264,7 @@
         resultsEl.querySelectorAll("[data-name-index]").forEach((input) => {
           input.addEventListener("input", () => {
             const index = Number(input.dataset.nameIndex);
-            const fallback = `${sanitizeBaseName(baseNameInput.value || state.file?.name || "clip")}_${String(index + 1).padStart(2, "0")}.mp3`;
+            const fallback = `${buildIndexedClipName(index, sanitizeBaseName(baseNameInput.value || state.file?.name || "clip"))}.mp3`;
             state.clips[index].name = normalizeClipName(input.value, fallback);
           });
         });
@@ -1331,7 +1336,7 @@
             const segmentBuffer = createSegmentBuffer(state.audioBuffer, startFrame, endFrame);
             const blob = encodeMp3FromBuffer(segmentBuffer);
             const segmentIndex = state.clips.length;
-            const fallbackName = `${baseName}_${String(segmentIndex + 1).padStart(2, "0")}.mp3`;
+            const fallbackName = `${buildIndexedClipName(segmentIndex, baseName)}.mp3`;
             state.clips.push({
               name: textSegmentNames[segmentIndex] || fallbackName,
               blob,
