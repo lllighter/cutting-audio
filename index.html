@@ -849,6 +849,11 @@
         return `${String(index + 1).padStart(2, "0")}_${name}`;
       }
 
+      function buildIndexedClipFileName(index, name, fallbackBaseName) {
+        const cleaned = sanitizeBaseName(name || "");
+        return `${buildIndexedClipName(index, cleaned || fallbackBaseName)}.mp3`;
+      }
+
       function getTranscriptGranularity() {
         return localModelSelect.value.split("|")[1] || "sentence";
       }
@@ -870,8 +875,7 @@
             .filter((segment) => segment.end > startTime && segment.start < endTime)
             .map((segment) => segment.text)
             .join(" ");
-          const fallback = buildIndexedClipName(i, baseName);
-          names.push(normalizeClipName(sentenceText, `${fallback}.mp3`));
+          names.push(buildIndexedClipFileName(i, sentenceText, baseName));
         }
 
         return names;
@@ -1264,8 +1268,8 @@
         resultsEl.querySelectorAll("[data-name-index]").forEach((input) => {
           input.addEventListener("input", () => {
             const index = Number(input.dataset.nameIndex);
-            const fallback = `${buildIndexedClipName(index, sanitizeBaseName(baseNameInput.value || state.file?.name || "clip"))}.mp3`;
-            state.clips[index].name = normalizeClipName(input.value, fallback);
+            const fallbackBaseName = sanitizeBaseName(baseNameInput.value || state.file?.name || "clip");
+            state.clips[index].name = buildIndexedClipFileName(index, input.value, fallbackBaseName);
           });
         });
 
@@ -1336,7 +1340,7 @@
             const segmentBuffer = createSegmentBuffer(state.audioBuffer, startFrame, endFrame);
             const blob = encodeMp3FromBuffer(segmentBuffer);
             const segmentIndex = state.clips.length;
-            const fallbackName = `${buildIndexedClipName(segmentIndex, baseName)}.mp3`;
+            const fallbackName = buildIndexedClipFileName(segmentIndex, "", baseName);
             state.clips.push({
               name: textSegmentNames[segmentIndex] || fallbackName,
               blob,
