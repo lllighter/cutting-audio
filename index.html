@@ -461,6 +461,12 @@
         gap: 6px;
       }
 
+      .result-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
       .empty {
         padding: 22px 14px;
         color: var(--muted);
@@ -706,13 +712,21 @@
                     <option value="onnx-community/whisper-tiny.en_timestamped|word">英语 · 快速 · 单词</option>
                     <option value="onnx-community/whisper-tiny_timestamped|sentence">多语言 · 快速 · 句子</option>
                     <option value="onnx-community/whisper-tiny_timestamped|word">多语言 · 快速 · 单词</option>
+                    <option value="onnx-community/whisper-base.en_timestamped|sentence">英语 · 平衡 · 句子</option>
+                    <option value="onnx-community/whisper-base.en_timestamped|word">英语 · 平衡 · 单词</option>
+                    <option value="onnx-community/whisper-base_timestamped|sentence">多语言 · 平衡 · 句子</option>
+                    <option value="onnx-community/whisper-base_timestamped|word">多语言 · 平衡 · 单词</option>
+                    <option value="onnx-community/whisper-small.en_timestamped|sentence">英语 · 更准 · 句子</option>
+                    <option value="onnx-community/whisper-small.en_timestamped|word">英语 · 更准 · 单词</option>
+                    <option value="onnx-community/whisper-small_timestamped|sentence">多语言 · 更准 · 句子</option>
+                    <option value="onnx-community/whisper-small_timestamped|word">多语言 · 更准 · 单词</option>
                   </select>
                 </div>
                 <div class="transcript-tools">
                   <button id="transcribeButton" class="primary tiny" disabled>转写文本</button>
                   <button id="clearTextCutsButton" class="tiny" disabled>清空文本切点</button>
                 </div>
-                <div class="transcript-summary" id="transcriptModeHint">首次转写会先下载本地模型，之后可离线复用缓存。转写后，点某一句表示在该句后切开。</div>
+                <div class="transcript-summary" id="transcriptModeHint">首次转写会先下载本地模型，之后可离线复用缓存。模型越大通常越准，但下载更慢、占用内存也更高。转写后，点某一句表示在该句后切开。</div>
                 <div class="transcript-box" id="transcriptBox">
                   <div class="empty">转写结果会显示在这里</div>
                 </div>
@@ -845,6 +859,14 @@
         return cleaned ? `${cleaned}.mp3` : fallback;
       }
 
+      function stripMp3Extension(name) {
+        return String(name || "").replace(/\.mp3$/i, "");
+      }
+
+      function stripIndexedPrefix(name) {
+        return String(name || "").replace(/^\d+_/, "");
+      }
+
       function buildIndexedClipName(index, name) {
         return `${String(index + 1).padStart(2, "0")}_${name}`;
       }
@@ -852,6 +874,11 @@
       function buildIndexedClipFileName(index, name, fallbackBaseName) {
         const cleaned = sanitizeBaseName(name || "");
         return `${buildIndexedClipName(index, cleaned || fallbackBaseName)}.mp3`;
+      }
+
+      function deriveClipLabel(name, fallbackBaseName) {
+        const cleaned = sanitizeBaseName(stripIndexedPrefix(stripMp3Extension(name)));
+        return cleaned || fallbackBaseName;
       }
 
       function getTranscriptGranularity() {
@@ -901,6 +928,18 @@
         resultsSummary.textContent = "0 段";
         segmentStat.textContent = "0";
         downloadAllButton.disabled = true;
+      }
+
+      function reindexClips() {
+        const fallbackBaseName = sanitizeBaseName(baseNameInput.value || state.file?.name || "clip") || "clip";
+        state.clips = state.clips.map((clip, index) => {
+          const label = deriveClipLabel(clip.label || clip.name, fallbackBaseName);
+          return {
+            ...clip,
+            label,
+            name: buildIndexedClipFileName(index, label, fallbackBaseName),
+          };
+        });
       }
 
       function resetTranscript() {
@@ -1248,19 +1287,26 @@
         resultsSummary.textContent = `${state.clips.length} 段`;
         segmentStat.textContent = String(state.clips.length);
         resultsEl.innerHTML = "";
+        reindexClips();
 
         state.clips.forEach((clip, index) => {
           const row = document.createElement("div");
           row.className = "result-row";
           row.innerHTML = `
             <div class="result-meta">
-              <input class="name-edit" data-name-index="${index}" value="${clip.name.replace(/\.mp3$/i, "")}" />
+              <input class="name-edit" data-name-index="${index}" value="${clip.label}" />
+              <div class="result-row-head">
+                <span class="meta">${stripMp3Extension(clip.name)}</span>
+              </div>
               <div class="result-row-head">
                 <span class="meta">${formatSeconds(clip.duration)}</span>
                 <span class="meta">${formatBytes(clip.blob.size)}</span>
               </div>
             </div>
-            <button data-download-index="${index}">下载</button>
+            <div class="result-actions">
+              <button data-download-index="${index}">下载</button>
+              <button class="danger" data-delete-index="${index}">删除</button>
+            </div>
           `;
           resultsEl.appendChild(row);
         });
@@ -1269,7 +1315,12 @@
           input.addEventListener("input", () => {
             const index = Number(input.dataset.nameIndex);
             const fallbackBaseName = sanitizeBaseName(baseNameInput.value || state.file?.name || "clip");
-            state.clips[index].name = buildIndexedClipFileName(index, input.value, fallbackBaseName);
+            const label = sanitizeBaseName(input.value) || fallbackBaseName;
+            state.clips[index].label = label;
+            state.clips[index].name = buildIndexedClipFileName(index, label, fallbackBaseName);
+          });
+          input.addEventListener("change", () => {
+            renderResults();
           });
         });
 
@@ -1277,6 +1328,14 @@
           button.addEventListener("click", () => {
             const clip = state.clips[Number(button.dataset.downloadIndex)];
             downloadBlob(clip.blob, clip.name);
+          });
+        });
+
+        resultsEl.querySelectorAll("[data-delete-index]").forEach((button) => {
+          button.addEventListener("click", () => {
+            state.clips.splice(Number(button.dataset.deleteIndex), 1);
+            renderResults();
+            setStatus(`已删除一段，当前剩余 ${state.clips.length} 段。`, true);
           });
         });
 
@@ -1341,8 +1400,10 @@
             const blob = encodeMp3FromBuffer(segmentBuffer);
             const segmentIndex = state.clips.length;
             const fallbackName = buildIndexedClipFileName(segmentIndex, "", baseName);
+            const clipLabel = deriveClipLabel(textSegmentNames[segmentIndex] || fallbackName, baseName);
             state.clips.push({
-              name: textSegmentNames[segmentIndex] || fallbackName,
+              label: clipLabel,
+              name: buildIndexedClipFileName(segmentIndex, clipLabel, baseName),
               blob,
               duration: endTime - startTime,
             });
