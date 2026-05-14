@@ -826,6 +826,15 @@
         dragToSeek: true,
       });
 
+      const TEXT_CUT_CONFIG = {
+        defaultTailPadding: 0.18,
+        maxTailPadding: 0.24,
+        nextSentenceGuard: 0.03,
+        silenceWindow: 0.05,
+        silenceStep: 0.01,
+        minSilenceGap: 0.06,
+      };
+
       function formatSeconds(totalSeconds) {
         const clamped = Math.max(0, totalSeconds);
         const hours = Math.floor(clamped / 3600);
@@ -965,11 +974,102 @@
         return state.transcriptSegments.filter((segment) => segment.cutAfter).length;
       }
 
-      function getTextCutTimes() {
+      function getSegmentGap(index) {
+        const current = state.transcriptSegments[index];
+        const next = state.transcriptSegments[index + 1];
+        if (!current) return 0;
+        const duration = getDuration();
+        const nextBoundary = next ? next.start : duration;
+        return Math.max(0, nextBoundary - current.end);
+      }
+
+      function getChannelWindowRms(channelData, startFrame, endFrame) {
+        const clampedStart = Math.max(0, startFrame);
+        const clampedEnd = Math.max(clampedStart + 1, Math.min(channelData.length, endFrame));
+        let sumSquares = 0;
+        for (let i = clampedStart; i < clampedEnd; i += 1) {
+          const sample = channelData[i];
+          sumSquares += sample * sample;
+        }
+        return Math.sqrt(sumSquares / (clampedEnd - clampedStart));
+      }
+
+      function measureWindowRms(startTime, endTime) {
+        if (!state.audioBuffer) return 0;
+        const duration = getDuration();
+        const safeStart = Math.max(0, startTime);
+        const safeEnd = Math.min(duration, Math.max(safeStart + 0.001, endTime));
+        const startFrame = Math.floor(safeStart * state.audioBuffer.sampleRate);
+        const endFrame = Math.floor(safeEnd * state.audioBuffer.sampleRate);
+        let total = 0;
+        for (let channel = 0; channel < state.audioBuffer.numberOfChannels; channel += 1) {
+          total += getChannelWindowRms(state.audioBuffer.getChannelData(channel), startFrame, endFrame);
+        }
+        return total / state.audioBuffer.numberOfChannels;
+      }
+
+      function resolveTextCutTime(segment, index) {
+        const duration = getDuration();
+        if (!duration) return segment.end;
+
+        const next = state.transcriptSegments[index + 1];
+        const hardLimit = next
+          ? Math.max(segment.end, next.start - TEXT_CUT_CONFIG.nextSentenceGuard)
+          : duration;
+        const availableGap = Math.max(0, hardLimit - segment.end);
+        if (availableGap <= 0.005) {
+          return Number(Math.min(segment.end, hardLimit).toFixed(3));
+        }
+
+        const adaptivePadding = next
+          ? Math.min(TEXT_CUT_CONFIG.maxTailPadding, availableGap * 0.45)
+          : Math.min(TEXT_CUT_CONFIG.defaultTailPadding, availableGap);
+        const preferredEnd = Math.min(hardLimit, segment.end + adaptivePadding);
+        const searchEnd = Math.min(
+          hardLimit,
+          segment.end + Math.min(TEXT_CUT_CONFIG.maxTailPadding, availableGap)
+        );
+
+        if (availableGap >= TEXT_CUT_CONFIG.minSilenceGap) {
+          const speechProbeStart = Math.max(segment.start, segment.end - 0.12);
+          const speechRms = measureWindowRms(speechProbeStart, segment.end);
+          const silenceThreshold = Math.max(0.008, speechRms * 0.22);
+          let latestQuietBoundary = null;
+
+          for (
+            let probeStart = segment.end;
+            probeStart + TEXT_CUT_CONFIG.silenceWindow <= searchEnd;
+            probeStart += TEXT_CUT_CONFIG.silenceStep
+          ) {
+            const probeEnd = probeStart + TEXT_CUT_CONFIG.silenceWindow;
+            const rms = measureWindowRms(probeStart, probeEnd);
+            if (rms <= silenceThreshold) {
+              latestQuietBoundary = probeEnd;
+            }
+          }
+
+          if (latestQuietBoundary !== null) {
+            return Number(Math.min(hardLimit, Math.max(preferredEnd, latestQuietBoundary)).toFixed(3));
+          }
+        }
+
+        return Number(preferredEnd.toFixed(3));
+      }
+
+      function getTextCutDetails() {
         return state.transcriptSegments
-          .filter((segment) => segment.cutAfter)
-          .map((segment) => segment.end)
-          .sort((a, b) => a - b);
+          .map((segment, index) => ({ segment, index }))
+          .filter(({ segment }) => segment.cutAfter)
+          .map(({ segment, index }) => ({
+            index,
+            time: resolveTextCutTime(segment, index),
+            gap: getSegmentGap(index),
+          }))
+          .sort((a, b) => a.time - b.time);
+      }
+
+      function getTextCutTimes() {
+        return getTextCutDetails().map((item) => item.time);
       }
 
       function getDuration() {
@@ -1031,9 +1131,9 @@
       }
 
       function renderCutsList() {
-        const textCuts = getTextCutTimes();
-        cutsSummary.textContent = `${state.markers.length + textCuts.length} 条`;
-        if (!state.markers.length && !textCuts.length) {
+        const textCutDetails = getTextCutDetails();
+        cutsSummary.textContent = `${state.markers.length + textCutDetails.length} 条`;
+        if (!state.markers.length && !textCutDetails.length) {
           cutsList.innerHTML = '<div class="empty">还没有分割线</div>';
           return;
         }
@@ -1052,13 +1152,13 @@
           cutsList.appendChild(row);
         });
 
-        textCuts.forEach((time, index) => {
+        textCutDetails.forEach(({ time, gap }, index) => {
           const row = document.createElement("div");
           row.className = "cut-row";
           row.innerHTML = `
             <div class="cut-row-head">
               <strong>文本切点 ${index + 1}</strong>
-              <span class="meta">自动</span>
+              <span class="meta">${gap > 0.03 ? "自动补尾" : "自动"}</span>
             </div>
             <div class="meta">${formatSeconds(time)}</div>
           `;
@@ -1135,8 +1235,8 @@
         const cutCount = getTextCutCount();
         transcriptSummary.textContent = `${count} ${getTranscriptModeLabel()}`;
         transcriptModeHint.textContent = cutCount
-          ? `已选择 ${cutCount} 个文本切点，导出时会优先按文本切割。`
-          : `点某一${getTranscriptModeLabel()}表示在该${getTranscriptModeLabel()}后切开。`;
+          ? `已选择 ${cutCount} 个文本切点，导出时会优先按文本切割，并自动补一点句尾停顿。`
+          : `点某一${getTranscriptModeLabel()}表示在该${getTranscriptModeLabel()}后切开。导出时会自动补一点句尾，但会避开下一句开头。`;
         transcriptBox.innerHTML = '<div class="transcript-words" id="transcriptWords"></div>';
         const container = document.getElementById("transcriptWords");
 
