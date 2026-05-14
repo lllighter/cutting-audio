@@ -490,6 +490,33 @@
         gap: 8px;
       }
 
+      .mode-tabs {
+        display: inline-flex;
+        gap: 6px;
+        padding: 4px;
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+      }
+
+      .tab-button {
+        min-height: 36px;
+        padding: 0 12px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      .tab-button.active {
+        background: #ffffff;
+        border-color: var(--line);
+        color: var(--text);
+      }
+
+      .mode-panel[hidden] {
+        display: none;
+      }
+
       .transcript-summary {
         font-size: 12px;
         color: var(--muted);
@@ -543,6 +570,29 @@
         min-height: 34px;
         padding: 0 10px;
         font-size: 13px;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 220px;
+        padding: 12px;
+        color: var(--text);
+        background: #ffffff;
+        border: 1px solid var(--line);
+        outline: none;
+        resize: vertical;
+        font: inherit;
+        line-height: 1.5;
+      }
+
+      textarea:focus {
+        border-color: rgba(78, 161, 255, 0.55);
+        box-shadow: inset 0 0 0 1px rgba(78, 161, 255, 0.24);
+      }
+
+      .manual-summary {
+        font-size: 12px;
+        color: var(--muted);
       }
 
       .stack-panels {
@@ -660,7 +710,7 @@
             <div class="surface-head">
               <h3>时间轴</h3>
               <div class="timecode-row">
-                <span class="time-badge">点击波形定位播放头</span>
+                <span class="time-badge" id="timelineHint">点击波形定位播放头</span>
                 <span class="playhead" id="playheadTime">00:00</span>
               </div>
             </div>
@@ -701,41 +751,59 @@
 
             <section class="cuts-panel">
               <div class="surface-head">
-                <h3>文本切割</h3>
-                <span class="meta" id="transcriptSummary">未转写</span>
+                <h3>切割模式</h3>
+                <div class="mode-tabs" role="tablist" aria-label="切割模式">
+                  <button class="tab-button active" id="manualModeTab" data-mode-tab="manual" aria-selected="true">手动分割线</button>
+                  <button class="tab-button" id="transcriptModeTab" data-mode-tab="transcript" aria-selected="false">文本切割</button>
+                </div>
               </div>
               <div class="panel-body">
-                <div class="field">
-                  <label for="localModel">本地识别模型</label>
-                  <select id="localModel">
-                    <option value="onnx-community/whisper-tiny.en_timestamped|sentence" selected>英语 · 快速 · 句子</option>
-                    <option value="onnx-community/whisper-tiny.en_timestamped|word">英语 · 快速 · 单词</option>
-                    <option value="onnx-community/whisper-tiny_timestamped|sentence">多语言 · 快速 · 句子</option>
-                    <option value="onnx-community/whisper-tiny_timestamped|word">多语言 · 快速 · 单词</option>
-                    <option value="onnx-community/whisper-base.en_timestamped|sentence">英语 · 平衡 · 句子</option>
-                    <option value="onnx-community/whisper-base.en_timestamped|word">英语 · 平衡 · 单词</option>
-                    <option value="onnx-community/whisper-base_timestamped|sentence">多语言 · 平衡 · 句子</option>
-                    <option value="onnx-community/whisper-base_timestamped|word">多语言 · 平衡 · 单词</option>
-                    <option value="onnx-community/whisper-small.en_timestamped|sentence">英语 · 更准 · 句子</option>
-                    <option value="onnx-community/whisper-small.en_timestamped|word">英语 · 更准 · 单词</option>
-                    <option value="onnx-community/whisper-small_timestamped|sentence">多语言 · 更准 · 句子</option>
-                    <option value="onnx-community/whisper-small_timestamped|word">多语言 · 更准 · 单词</option>
-                  </select>
+                <div class="mode-panel" id="manualModePanel">
+                  <div class="field">
+                    <label for="manualNames">批量文件名</label>
+                    <textarea id="manualNames" placeholder="每行一个文件名，按导出后的顺序依次对应。"></textarea>
+                  </div>
+                  <div class="manual-summary" id="manualNamesSummary">当前 0 行。手动模式会按时间轴分割线导出，并把这里的内容逐行写入文件名。</div>
                 </div>
-                <div class="transcript-tools">
-                  <button id="transcribeButton" class="primary tiny" disabled>转写文本</button>
-                  <button id="clearTextCutsButton" class="tiny" disabled>清空文本切点</button>
-                </div>
-                <div class="transcript-summary" id="transcriptModeHint">首次转写会先下载本地模型，之后可离线复用缓存。模型越大通常越准，但下载更慢、占用内存也更高。转写后，点某一句表示在该句后切开。</div>
-                <div class="transcript-box" id="transcriptBox">
-                  <div class="empty">转写结果会显示在这里</div>
+                <div class="mode-panel" id="transcriptModePanel" hidden>
+                  <div class="surface-head">
+                    <h3>文本切割</h3>
+                    <span class="meta" id="transcriptSummary">未转写</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="field">
+                      <label for="localModel">本地识别模型</label>
+                      <select id="localModel">
+                        <option value="onnx-community/whisper-tiny.en_timestamped|sentence" selected>英语 · 快速 · 句子</option>
+                        <option value="onnx-community/whisper-tiny.en_timestamped|word">英语 · 快速 · 单词</option>
+                        <option value="onnx-community/whisper-tiny_timestamped|sentence">多语言 · 快速 · 句子</option>
+                        <option value="onnx-community/whisper-tiny_timestamped|word">多语言 · 快速 · 单词</option>
+                        <option value="onnx-community/whisper-base.en_timestamped|sentence">英语 · 平衡 · 句子</option>
+                        <option value="onnx-community/whisper-base.en_timestamped|word">英语 · 平衡 · 单词</option>
+                        <option value="onnx-community/whisper-base_timestamped|sentence">多语言 · 平衡 · 句子</option>
+                        <option value="onnx-community/whisper-base_timestamped|word">多语言 · 平衡 · 单词</option>
+                        <option value="onnx-community/whisper-small.en_timestamped|sentence">英语 · 更准 · 句子</option>
+                        <option value="onnx-community/whisper-small.en_timestamped|word">英语 · 更准 · 单词</option>
+                        <option value="onnx-community/whisper-small_timestamped|sentence">多语言 · 更准 · 句子</option>
+                        <option value="onnx-community/whisper-small_timestamped|word">多语言 · 更准 · 单词</option>
+                      </select>
+                    </div>
+                    <div class="transcript-tools">
+                      <button id="transcribeButton" class="primary tiny" disabled>转写文本</button>
+                      <button id="clearTextCutsButton" class="tiny" disabled>清空文本切点</button>
+                    </div>
+                    <div class="transcript-summary" id="transcriptModeHint">首次转写会先下载本地模型，之后可离线复用缓存。模型越大通常越准，但下载更慢、占用内存也更高。转写后，点某一句表示在该句后切开。</div>
+                    <div class="transcript-box" id="transcriptBox">
+                      <div class="empty">转写结果会显示在这里</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
 
             <section class="cuts-panel">
               <div class="surface-head">
-                <h3>分割线</h3>
+                <h3 id="cutsTitle">分割线</h3>
                 <span class="meta" id="cutsSummary">0 条</span>
               </div>
               <div class="panel-body">
@@ -777,17 +845,25 @@
       const segmentStat = document.getElementById("segmentStat");
       const playheadTime = document.getElementById("playheadTime");
       const statusEl = document.getElementById("status");
+      const timelineHint = document.getElementById("timelineHint");
       const splitAtPlayheadButton = document.getElementById("splitAtPlayheadButton");
       const splitAtCenterButton = document.getElementById("splitAtCenterButton");
       const clearMarkersButton = document.getElementById("clearMarkersButton");
       const exportButton = document.getElementById("exportButton");
       const downloadAllButton = document.getElementById("downloadAllButton");
+      const manualModeTab = document.getElementById("manualModeTab");
+      const transcriptModeTab = document.getElementById("transcriptModeTab");
+      const manualModePanel = document.getElementById("manualModePanel");
+      const transcriptModePanel = document.getElementById("transcriptModePanel");
+      const manualNamesInput = document.getElementById("manualNames");
+      const manualNamesSummary = document.getElementById("manualNamesSummary");
       const localModelSelect = document.getElementById("localModel");
       const transcribeButton = document.getElementById("transcribeButton");
       const clearTextCutsButton = document.getElementById("clearTextCutsButton");
       const transcriptBox = document.getElementById("transcriptBox");
       const transcriptSummary = document.getElementById("transcriptSummary");
       const transcriptModeHint = document.getElementById("transcriptModeHint");
+      const cutsTitle = document.getElementById("cutsTitle");
       const cutsList = document.getElementById("cutsList");
       const cutsSummary = document.getElementById("cutsSummary");
       const resultsEl = document.getElementById("results");
@@ -804,6 +880,7 @@
         file: null,
         audioBuffer: null,
         sourceUrl: "",
+        cutMode: "manual",
         markers: [],
         transcriptSegments: [],
         clips: [],
@@ -894,27 +971,73 @@
         return localModelSelect.value.split("|")[1] || "sentence";
       }
 
+      function isManualMode() {
+        return state.cutMode === "manual";
+      }
+
+      function parseManualNames() {
+        return manualNamesInput.value
+          .split(/\r?\n/)
+          .map((line) => sanitizeBaseName(line))
+          .filter(Boolean);
+      }
+
+      function updateManualNamesSummary() {
+        const count = parseManualNames().length;
+        manualNamesSummary.textContent = count
+          ? `当前 ${count} 行。导出时会按顺序一行对应一个文件名。`
+          : "当前 0 行。手动模式会按时间轴分割线导出，并把这里的内容逐行写入文件名。";
+      }
+
+      function updateModeUI() {
+        const manual = isManualMode();
+        manualModeTab.classList.toggle("active", manual);
+        transcriptModeTab.classList.toggle("active", !manual);
+        manualModeTab.setAttribute("aria-selected", String(manual));
+        transcriptModeTab.setAttribute("aria-selected", String(!manual));
+        manualModePanel.hidden = !manual;
+        transcriptModePanel.hidden = manual;
+        splitAtPlayheadButton.disabled = !state.audioBuffer || !manual;
+        splitAtCenterButton.disabled = !state.audioBuffer || !manual;
+        clearMarkersButton.disabled = !state.audioBuffer || !manual;
+        transcribeButton.disabled = !state.audioBuffer || manual;
+        exportButton.textContent = manual ? "按分割线导出" : "按文本切点导出";
+        cutsTitle.textContent = manual ? "分割线" : "文本切点";
+        timelineHint.textContent = manual ? "点击波形定位播放头" : "文本模式下仅预览波形";
+        markersEl.style.display = manual ? "" : "none";
+        renderCutsList();
+      }
+
+      function setCutMode(mode) {
+        if (mode !== "manual" && mode !== "transcript") return;
+        state.cutMode = mode;
+        cleanupClips();
+        updateModeUI();
+        setStatus(
+          mode === "manual"
+            ? "已切换到手动分割线模式。时间轴分割线和批量文件名会用于导出。"
+            : "已切换到文本切割模式。仅使用文本切点导出。"
+        );
+      }
+
       function getTranscriptModeLabel() {
         return getTranscriptGranularity() === "word" ? "单词" : "句子";
       }
 
-      function buildTextSegmentNames(cutTimes, duration) {
-        if (!state.transcriptSegments.length) return [];
-        const boundaries = [0, ...cutTimes, duration];
-        const names = [];
-        const baseName = sanitizeBaseName(baseNameInput.value || state.file?.name || "clip");
+      function collectTranscriptTextForRange(startTime, endTime) {
+        return state.transcriptSegments
+          .filter((segment) => {
+            const overlapStart = Math.max(startTime, segment.start);
+            const overlapEnd = Math.min(endTime, segment.end);
+            return overlapEnd - overlapStart > 0.01;
+          })
+          .map((segment) => segment.text)
+          .join(" ")
+          .trim();
+      }
 
-        for (let i = 0; i < boundaries.length - 1; i += 1) {
-          const startTime = boundaries[i];
-          const endTime = boundaries[i + 1];
-          const sentenceText = state.transcriptSegments
-            .filter((segment) => segment.end > startTime && segment.start < endTime)
-            .map((segment) => segment.text)
-            .join(" ");
-          names.push(buildIndexedClipFileName(i, sentenceText, baseName));
-        }
-
-        return names;
+      function buildClipLabelForRange(startTime, endTime, fallbackBaseName) {
+        return deriveClipLabel(collectTranscriptTextForRange(startTime, endTime), fallbackBaseName);
       }
 
       function setStatus(message, done = false) {
@@ -922,11 +1045,8 @@
       }
 
       function setButtonsEnabled(enabled) {
-        splitAtPlayheadButton.disabled = !enabled;
-        splitAtCenterButton.disabled = !enabled;
-        clearMarkersButton.disabled = !enabled;
         exportButton.disabled = !enabled;
-        transcribeButton.disabled = !enabled;
+        updateModeUI();
       }
 
       function cleanupClips() {
@@ -1100,10 +1220,9 @@
         const duration = getDuration();
         sortMarkers();
         markerStat.textContent = String(state.markers.length);
-        cutsSummary.textContent = `${state.markers.length} 条`;
 
         if (!duration) {
-          cutsList.innerHTML = '<div class="empty">还没有分割线</div>';
+          renderCutsList();
           return;
         }
 
@@ -1131,26 +1250,41 @@
       }
 
       function renderCutsList() {
-        const textCutDetails = getTextCutDetails();
-        cutsSummary.textContent = `${state.markers.length + textCutDetails.length} 条`;
-        if (!state.markers.length && !textCutDetails.length) {
-          cutsList.innerHTML = '<div class="empty">还没有分割线</div>';
+        const manual = isManualMode();
+        const textCutDetails = manual ? [] : getTextCutDetails();
+        const manualMarkers = manual ? state.markers : [];
+        cutsSummary.textContent = `${manual ? manualMarkers.length : textCutDetails.length} 条`;
+
+        if (!manualMarkers.length && !textCutDetails.length) {
+          cutsList.innerHTML = `<div class="empty">${manual ? "还没有分割线" : "还没有文本切点"}</div>`;
           return;
         }
 
         cutsList.innerHTML = "";
-        state.markers.forEach((time, index) => {
-          const row = document.createElement("div");
-          row.className = "cut-row";
-          row.innerHTML = `
-            <div class="cut-row-head">
-              <strong>分割线 ${index + 1}</strong>
-              <button class="danger" data-remove-index="${index}">删除</button>
-            </div>
-            <div class="meta">${formatSeconds(time)}</div>
-          `;
-          cutsList.appendChild(row);
-        });
+        if (manual) {
+          manualMarkers.forEach((time, index) => {
+            const row = document.createElement("div");
+            row.className = "cut-row";
+            row.innerHTML = `
+              <div class="cut-row-head">
+                <strong>分割线 ${index + 1}</strong>
+                <button class="danger" data-remove-index="${index}">删除</button>
+              </div>
+              <div class="meta">${formatSeconds(time)}</div>
+            `;
+            cutsList.appendChild(row);
+          });
+
+          cutsList.querySelectorAll("[data-remove-index]").forEach((button) => {
+            button.addEventListener("click", () => {
+              state.markers.splice(Number(button.dataset.removeIndex), 1);
+              renderMarkers();
+              cleanupClips();
+              setStatus("已删除分割线。");
+            });
+          });
+          return;
+        }
 
         textCutDetails.forEach(({ time, gap }, index) => {
           const row = document.createElement("div");
@@ -1164,18 +1298,10 @@
           `;
           cutsList.appendChild(row);
         });
-
-        cutsList.querySelectorAll("[data-remove-index]").forEach((button) => {
-          button.addEventListener("click", () => {
-            state.markers.splice(Number(button.dataset.removeIndex), 1);
-            renderMarkers();
-            cleanupClips();
-            setStatus("已删除分割线。");
-          });
-        });
       }
 
       function addMarker(time) {
+        if (!isManualMode()) return;
         const duration = getDuration();
         if (!duration) return;
         const clamped = Math.min(duration - 0.01, Math.max(0.01, time));
@@ -1217,6 +1343,68 @@
 
         pushCurrent();
         return sentences;
+      }
+
+      function normalizeTranscriptWords(words) {
+        const duration = getDuration();
+        const cleaned = words
+          .map((item) => {
+            const timestamp = Array.isArray(item.timestamp) ? item.timestamp : [];
+            const rawWord = String(item.text || "").trim();
+            const normalizedWord = rawWord.replace(/\s+/g, " ");
+            return {
+              word: normalizedWord,
+              start: Number(timestamp[0]),
+              end: Number(timestamp[1]),
+            };
+          })
+          .filter((item) => item.word);
+
+        for (let i = 0; i < cleaned.length; i += 1) {
+          const current = cleaned[i];
+          const previous = cleaned[i - 1];
+          const next = cleaned[i + 1];
+
+          if (!Number.isFinite(current.start)) {
+            if (previous && Number.isFinite(previous.end)) {
+              current.start = previous.end;
+            } else {
+              current.start = 0;
+            }
+          }
+
+          if (!Number.isFinite(current.end)) {
+            if (next && Number.isFinite(next.start)) {
+              current.end = next.start;
+            } else if (duration) {
+              current.end = duration;
+            } else {
+              current.end = current.start;
+            }
+          }
+
+          if (current.end < current.start) {
+            if (next && Number.isFinite(next.start) && next.start >= current.start) {
+              current.end = next.start;
+            } else {
+              current.end = current.start + 0.01;
+            }
+          }
+        }
+
+        return cleaned
+          .map((item, index) => {
+            const next = cleaned[index + 1];
+            const start = Math.max(0, item.start);
+            const upperBound = Number.isFinite(next?.start) ? next.start : duration || item.end;
+            const end = Math.max(start, Math.min(item.end, upperBound || item.end));
+            return {
+              word: item.word,
+              start: Number(start.toFixed(3)),
+              end: Number(end.toFixed(3)),
+            };
+          })
+          .filter((item) => Number.isFinite(item.start) && Number.isFinite(item.end));
       }
 
       function buildTranscriptUnits(words) {
@@ -1279,21 +1467,17 @@
           const result = await localTranscriber(state.sourceUrl, {
             return_timestamps: "word",
             chunk_length_s: 30,
-            stride_length_s: 5,
+            stride_length_s: 8,
           });
           const words = Array.isArray(result.chunks) ? result.chunks : [];
           if (!words.length) {
             throw new Error("No word timestamps returned");
           }
 
-          const transcriptWords = words
-            .filter((item) => item.text && Array.isArray(item.timestamp))
-            .map((item) => ({
-              word: item.text.trim(),
-              start: Number(item.timestamp[0]),
-              end: Number(item.timestamp[1]),
-            }))
-            .filter((item) => item.word && Number.isFinite(item.start) && Number.isFinite(item.end) && item.end >= item.start);
+          const transcriptWords = normalizeTranscriptWords(words);
+          if (!transcriptWords.length) {
+            throw new Error("No normalized word timestamps available");
+          }
           state.transcriptSegments = buildTranscriptUnits(transcriptWords);
 
           cleanupClips();
@@ -1468,7 +1652,12 @@
           state.markers = [];
           renderMarkers();
           setButtonsEnabled(true);
-          setStatus("音频已载入。点击波形定位播放头，然后添加分割线。", true);
+          setStatus(
+            isManualMode()
+              ? "音频已载入。点击波形定位播放头，然后添加分割线。"
+              : "音频已载入。先转写文本，再选择需要切开的句子或单词。",
+            true
+          );
         } catch (error) {
           console.error(error);
           setStatus("音频载入失败，请换一个可解码的音频文件。");
@@ -1478,16 +1667,16 @@
       async function exportSegments() {
         if (!state.audioBuffer || !state.file) return;
         const duration = state.audioBuffer.duration;
-        const textCutTimes = getTextCutTimes();
-        const manualCutTimes = state.markers.slice().sort((a, b) => a - b);
-        const activeCuts = textCutTimes.length ? textCutTimes : manualCutTimes;
+        const textCutTimes = isManualMode() ? [] : getTextCutTimes();
+        const manualCutTimes = isManualMode() ? state.markers.slice().sort((a, b) => a - b) : [];
+        const activeCuts = isManualMode() ? manualCutTimes : textCutTimes;
         const points = [0, ...activeCuts, duration];
         const baseName = sanitizeBaseName(baseNameInput.value || state.file.name) || "clip";
-        const textSegmentNames = textCutTimes.length ? buildTextSegmentNames(textCutTimes, duration) : [];
+        const manualNames = parseManualNames();
         cleanupClips();
         exportButton.disabled = true;
         downloadAllButton.disabled = true;
-        setStatus(textCutTimes.length ? "正在根据文本切点导出 MP3..." : "正在根据分割线导出 MP3...");
+        setStatus(isManualMode() ? "正在根据分割线导出 MP3..." : "正在根据文本切点导出 MP3...");
 
         try {
           for (let i = 0; i < points.length - 1; i += 1) {
@@ -1499,8 +1688,9 @@
             const segmentBuffer = createSegmentBuffer(state.audioBuffer, startFrame, endFrame);
             const blob = encodeMp3FromBuffer(segmentBuffer);
             const segmentIndex = state.clips.length;
-            const fallbackName = buildIndexedClipFileName(segmentIndex, "", baseName);
-            const clipLabel = deriveClipLabel(textSegmentNames[segmentIndex] || fallbackName, baseName);
+            const clipLabel = isManualMode()
+              ? deriveClipLabel(manualNames[segmentIndex], baseName)
+              : buildClipLabelForRange(startTime, endTime, baseName);
             state.clips.push({
               label: clipLabel,
               name: buildIndexedClipFileName(segmentIndex, clipLabel, baseName),
@@ -1512,7 +1702,13 @@
           }
 
           renderResults();
-          setStatus(`导出完成，共 ${state.clips.length} 段。`, true);
+          const namedCount = Math.min(manualNames.length, state.clips.length);
+          setStatus(
+            isManualMode()
+              ? `导出完成，共 ${state.clips.length} 段，套用了 ${namedCount} 行手动文件名。`
+              : `导出完成，共 ${state.clips.length} 段。`,
+            true
+          );
         } catch (error) {
           console.error(error);
           setStatus("导出失败，可能是音频较大或浏览器内存不足。");
@@ -1570,6 +1766,7 @@
       });
 
       waveWrap.addEventListener("dblclick", (event) => {
+        if (!isManualMode()) return;
         if (!getDuration()) return;
         const rect = markersEl.getBoundingClientRect();
         const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
@@ -1598,6 +1795,12 @@
         addMarker(getDuration() / 2);
       });
 
+      manualModeTab.addEventListener("click", () => setCutMode("manual"));
+      transcriptModeTab.addEventListener("click", () => setCutMode("transcript"));
+      manualNamesInput.addEventListener("input", () => {
+        updateManualNamesSummary();
+        cleanupClips();
+      });
       clearMarkersButton.addEventListener("click", clearMarkers);
       exportButton.addEventListener("click", exportSegments);
       downloadAllButton.addEventListener("click", downloadAll);
@@ -1630,6 +1833,9 @@
         sourceAudio.currentTime = time;
         playheadTime.textContent = formatSeconds(time);
       });
+
+      updateManualNamesSummary();
+      updateModeUI();
 
     </script>
   </body>
