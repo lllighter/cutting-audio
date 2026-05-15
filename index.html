@@ -887,7 +887,9 @@
         objectUrls: [],
         dragIndex: null,
         isDragging: false,
+        playingClipIndex: null,
       };
+      const clipPreviewAudio = new Audio();
 
       const wavesurfer = WaveSurfer.create({
         container: "#waveform",
@@ -936,13 +938,12 @@
         return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
       }
 
-      function sanitizeBaseName(name) {
-        return name.replace(/\.[^.]+$/, "").replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+      function stripKnownExtension(name) {
+        return String(name || "").replace(/\.(mp3|wav|m4a|aac|flac|ogg|webm|mp4)$/i, "");
       }
 
-      function normalizeClipName(name, fallback) {
-        const cleaned = sanitizeBaseName(name || "");
-        return cleaned ? `${cleaned}.mp3` : fallback;
+      function sanitizeBaseName(name) {
+        return stripKnownExtension(name).replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
       }
 
       function stripMp3Extension(name) {
@@ -958,13 +959,17 @@
       }
 
       function buildIndexedClipFileName(index, name, fallbackBaseName) {
-        const cleaned = sanitizeBaseName(name || "");
+        const cleaned = sanitizeBaseName(String(name || "").trim());
         return `${buildIndexedClipName(index, cleaned || fallbackBaseName)}.mp3`;
       }
 
-      function deriveClipLabel(name, fallbackBaseName) {
-        const cleaned = sanitizeBaseName(stripIndexedPrefix(stripMp3Extension(name)));
+      function normalizeClipLabel(name, fallbackBaseName) {
+        const cleaned = String(name || "").trim();
         return cleaned || fallbackBaseName;
+      }
+
+      function deriveClipLabel(name, fallbackBaseName) {
+        return normalizeClipLabel(stripIndexedPrefix(stripMp3Extension(name)), fallbackBaseName);
       }
 
       function getTranscriptGranularity() {
@@ -978,7 +983,7 @@
       function parseManualNames() {
         return manualNamesInput.value
           .split(/\r?\n/)
-          .map((line) => sanitizeBaseName(line))
+          .map((line) => String(line).trim())
           .filter(Boolean);
       }
 
@@ -1050,6 +1055,10 @@
       }
 
       function cleanupClips() {
+        clipPreviewAudio.pause();
+        clipPreviewAudio.removeAttribute("src");
+        clipPreviewAudio.load();
+        state.playingClipIndex = null;
         state.clips = [];
         state.objectUrls.forEach((url) => URL.revokeObjectURL(url));
         state.objectUrls = [];
@@ -1062,13 +1071,46 @@
       function reindexClips() {
         const fallbackBaseName = sanitizeBaseName(baseNameInput.value || state.file?.name || "clip") || "clip";
         state.clips = state.clips.map((clip, index) => {
-          const label = deriveClipLabel(clip.label || clip.name, fallbackBaseName);
+          const label = normalizeClipLabel(clip.label || deriveClipLabel(clip.name, fallbackBaseName), fallbackBaseName);
           return {
             ...clip,
             label,
             name: buildIndexedClipFileName(index, label, fallbackBaseName),
           };
         });
+      }
+
+      function stopClipPreview(resetTime = true) {
+        clipPreviewAudio.pause();
+        if (resetTime) {
+          clipPreviewAudio.currentTime = 0;
+        }
+        state.playingClipIndex = null;
+      }
+
+      function toggleClipPreview(index) {
+        const clip = state.clips[index];
+        if (!clip?.url) return;
+
+        if (state.playingClipIndex === index) {
+          stopClipPreview(false);
+          renderResults();
+          return;
+        }
+
+        clipPreviewAudio.src = clip.url;
+        clipPreviewAudio.currentTime = 0;
+        state.playingClipIndex = index;
+        clipPreviewAudio.play()
+          .then(() => {
+            renderResults();
+          })
+          .catch((error) => {
+            console.error(error);
+            stopClipPreview();
+            renderResults();
+            setStatus("当前浏览器阻止了片段自动播放，请再点一次播放。");
+          });
       }
 
       function resetTranscript() {
@@ -1576,22 +1618,51 @@
         state.clips.forEach((clip, index) => {
           const row = document.createElement("div");
           row.className = "result-row";
-          row.innerHTML = `
-            <div class="result-meta">
-              <input class="name-edit" data-name-index="${index}" value="${clip.label}" />
-              <div class="result-row-head">
-                <span class="meta">${stripMp3Extension(clip.name)}</span>
-              </div>
-              <div class="result-row-head">
-                <span class="meta">${formatSeconds(clip.duration)}</span>
-                <span class="meta">${formatBytes(clip.blob.size)}</span>
-              </div>
-            </div>
-            <div class="result-actions">
-              <button data-download-index="${index}">下载</button>
-              <button class="danger" data-delete-index="${index}">删除</button>
-            </div>
-          `;
+          const meta = document.createElement("div");
+          meta.className = "result-meta";
+
+          const nameInput = document.createElement("input");
+          nameInput.className = "name-edit";
+          nameInput.dataset.nameIndex = String(index);
+          nameInput.value = clip.label;
+
+          const fileNameRow = document.createElement("div");
+          fileNameRow.className = "result-row-head";
+          const fileNameMeta = document.createElement("span");
+          fileNameMeta.className = "meta";
+          fileNameMeta.textContent = stripMp3Extension(clip.name);
+          fileNameRow.appendChild(fileNameMeta);
+
+          const detailRow = document.createElement("div");
+          detailRow.className = "result-row-head";
+          const durationMeta = document.createElement("span");
+          durationMeta.className = "meta";
+          durationMeta.textContent = formatSeconds(clip.duration);
+          const sizeMeta = document.createElement("span");
+          sizeMeta.className = "meta";
+          sizeMeta.textContent = formatBytes(clip.blob.size);
+          detailRow.append(durationMeta, sizeMeta);
+
+          meta.append(nameInput, fileNameRow, detailRow);
+
+          const actions = document.createElement("div");
+          actions.className = "result-actions";
+
+          const playButton = document.createElement("button");
+          playButton.dataset.playIndex = String(index);
+          playButton.textContent = state.playingClipIndex === index ? "暂停" : "播放";
+
+          const downloadButton = document.createElement("button");
+          downloadButton.dataset.downloadIndex = String(index);
+          downloadButton.textContent = "下载";
+
+          const deleteButton = document.createElement("button");
+          deleteButton.className = "danger";
+          deleteButton.dataset.deleteIndex = String(index);
+          deleteButton.textContent = "删除";
+
+          actions.append(playButton, downloadButton, deleteButton);
+          row.append(meta, actions);
           resultsEl.appendChild(row);
         });
 
@@ -1599,12 +1670,20 @@
           input.addEventListener("input", () => {
             const index = Number(input.dataset.nameIndex);
             const fallbackBaseName = sanitizeBaseName(baseNameInput.value || state.file?.name || "clip");
-            const label = sanitizeBaseName(input.value) || fallbackBaseName;
+            const label = normalizeClipLabel(input.value, fallbackBaseName);
             state.clips[index].label = label;
             state.clips[index].name = buildIndexedClipFileName(index, label, fallbackBaseName);
+            const row = input.closest(".result-meta");
+            const preview = row?.querySelector(".result-row-head .meta");
+            if (preview) {
+              preview.textContent = stripMp3Extension(state.clips[index].name);
+            }
           });
-          input.addEventListener("change", () => {
-            renderResults();
+        });
+
+        resultsEl.querySelectorAll("[data-play-index]").forEach((button) => {
+          button.addEventListener("click", () => {
+            toggleClipPreview(Number(button.dataset.playIndex));
           });
         });
 
@@ -1617,7 +1696,13 @@
 
         resultsEl.querySelectorAll("[data-delete-index]").forEach((button) => {
           button.addEventListener("click", () => {
-            state.clips.splice(Number(button.dataset.deleteIndex), 1);
+            const index = Number(button.dataset.deleteIndex);
+            if (state.playingClipIndex === index) {
+              stopClipPreview();
+            } else if (state.playingClipIndex !== null && state.playingClipIndex > index) {
+              state.playingClipIndex -= 1;
+            }
+            state.clips.splice(index, 1);
             renderResults();
             setStatus(`已删除一段，当前剩余 ${state.clips.length} 段。`, true);
           });
@@ -1691,11 +1776,14 @@
             const clipLabel = isManualMode()
               ? deriveClipLabel(manualNames[segmentIndex], baseName)
               : buildClipLabelForRange(startTime, endTime, baseName);
+            const clipUrl = URL.createObjectURL(blob);
+            state.objectUrls.push(clipUrl);
             state.clips.push({
               label: clipLabel,
               name: buildIndexedClipFileName(segmentIndex, clipLabel, baseName),
               blob,
               duration: endTime - startTime,
+              url: clipUrl,
             });
             setStatus(`正在导出第 ${state.clips.length} 段...`);
             await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1818,6 +1906,12 @@
         renderCutsList();
       });
 
+      baseNameInput.addEventListener("input", () => {
+        if (state.clips.length) {
+          renderResults();
+        }
+      });
+
       sourceAudio.addEventListener("timeupdate", () => {
         playheadTime.textContent = formatSeconds(sourceAudio.currentTime);
         if (!wavesurfer.isPlaying()) {
@@ -1832,6 +1926,11 @@
       wavesurfer.on("interaction", (time) => {
         sourceAudio.currentTime = time;
         playheadTime.textContent = formatSeconds(time);
+      });
+
+      clipPreviewAudio.addEventListener("ended", () => {
+        state.playingClipIndex = null;
+        renderResults();
       });
 
       updateManualNamesSummary();
